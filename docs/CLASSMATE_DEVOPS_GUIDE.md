@@ -357,10 +357,10 @@ You do **NOT** need an SSH key, an SSH client, or an open port 22 to access your
 From your local terminal (macOS, Linux, or Windows with AWS CLI and Session Manager Plugin installed):
 
 ```bash
-aws ssm start-session --target i-06d3ce74e7868fc6d --region eu-north-1
+aws ssm start-session --target <YOUR_INSTANCE_ID> --region <YOUR_AWS_REGION>
 ```
 
-*(Replace `i-06d3ce74e7868fc6d` with your EC2 Instance ID and `eu-north-1` with your AWS region).*
+*(e.g., `aws ssm start-session --target i-0123456789abcdef0 --region eu-north-1`)*
 
 ### Privilege Escalation
 AWS SSM logs you in as the default service account: `ssm-user`. To run Docker commands or inspect system files, switch to root:
@@ -415,7 +415,7 @@ curl -s http://localhost:6000/health
 ### 8.3 Accessing the Web Application
 In your local browser, navigate to the public IP of your EC2 instance:
 ```
-http://16.16.233.140
+http://<YOUR_EC2_PUBLIC_IP>
 ```
 
 **Test Credentials:**

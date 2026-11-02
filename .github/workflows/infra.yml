@@ -47,12 +47,20 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
 
+      - name: Validate Deployment Configuration
+        run: |
+          if [ -z "${{ vars.AWS_ROLE_ARN }}" ] || [ -z "${{ vars.INSTANCE_ID }}" ]; then
+            echo "::error::Missing required repository variables: AWS_ROLE_ARN and/or INSTANCE_ID."
+            echo "Please configure these variables under Settings -> Secrets and variables -> Actions -> Variables"
+            exit 1
+          fi
+
       - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN || 'arn:aws:iam::265020546803:role/GitHubActions-devops-ec2ssm-github-Role-Adhiraj' }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'eu-north-1' }}
 
       - name: Deploy Platform Stack via AWS SSM
         run: |
-          bash scripts/ssm-run-platform.sh "${{ vars.INSTANCE_ID || 'i-06d3ce74e7868fc6d' }}"
+          bash scripts/ssm-run-platform.sh "${{ vars.INSTANCE_ID }}"

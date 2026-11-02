@@ -2,7 +2,11 @@
 # Runner side (GitHub Actions): ship infra/platform compose & configs to EC2 via SSM Run Command
 set -euo pipefail
 
-instance="${1:-${INSTANCE_ID:-i-06d3ce74e7868fc6d}}"
+instance="${1:-${INSTANCE_ID:-}}"
+if [ -z "$instance" ]; then
+  echo "Error: Target EC2 instance ID is required. Pass as argument or set INSTANCE_ID env var." >&2
+  exit 1
+fi
 region="${AWS_REGION:-eu-north-1}"
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
