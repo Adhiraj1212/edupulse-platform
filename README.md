@@ -66,3 +66,4 @@ bash scripts/smoke-test.sh
 # 3. Stop and clean up
 bash scripts/local-down.sh
 ```
+

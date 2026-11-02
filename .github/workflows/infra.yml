@@ -73,3 +73,4 @@ jobs:
           aws ssm get-command-invocation --command-id "$CMD" --instance-id "${{ vars.INFRA_INSTANCE_ID }}" \
             --query '[StandardOutputContent,StandardErrorContent]' --output text
           [ "$STATUS" = "Success" ] || { echo "deploy status: $STATUS"; exit 1; }
+
