@@ -50,11 +50,11 @@ EduPulse is modularized across 5 independent GitHub repositories:
 
 | Repository | Purpose | Ports / Tech |
 | :--- | :--- | :--- |
-| **`edupulse-platform`** *(this repo)* | GitOps, Data tier, Compose Orchestration | MySQL (3306), Redis (6379), RabbitMQ (5672) |
-| [**`edupulse-frontend`**](../edupulse-frontend) | Web Interface & Nginx Reverse Proxy | Port 80 (public) -> 8080 (container) |
-| [**`edupulse-backend`**](../edupulse-backend) | Student Management REST API | Port 5000 (Node.js 22) |
-| [**`edupulse-auth-service`**](../edupulse-auth-service) | Session Auth & Rate Limiting | Port 4000 (Node.js 22) |
-| [**`edupulse-audit-service`**](../edupulse-audit-service) | Event Consumer & Audit Logging | Port 6000 (Node.js 22) |
+| [**`edupulse-platform`**](https://github.com/Adhiraj1212/edupulse-platform) *(this repo)* | GitOps, Data tier, Compose Orchestration | MySQL (3306), Redis (6379), RabbitMQ (5672) |
+| [**`edupulse-frontend`**](https://github.com/Adhiraj1212/edupulse-frontend) | Web Interface & Nginx Reverse Proxy | Port 80 (public) -> 8080 (container) |
+| [**`edupulse-backend`**](https://github.com/Adhiraj1212/edupulse-backend) | Student Management REST API | Port 5000 (Node.js 22) |
+| [**`edupulse-auth-service`**](https://github.com/Adhiraj1212/edupulse-auth-service) | Session Auth & Rate Limiting | Port 4000 (Node.js 22) |
+| [**`edupulse-audit-service`**](https://github.com/Adhiraj1212/edupulse-audit-service) | Event Consumer & Audit Logging | Port 6000 (Node.js 22) |
 
 ---
 
@@ -129,5 +129,5 @@ Once the platform is running, push each of the 4 microservices to trigger their 
 ## 4. Deep-Dive Guides
 
 For detailed, step-by-step instructions, troubleshooting scenarios, and security explanations, check out:
-- [**EduPulse DevSecOps & GitOps Handbook**](docs/EDUPULSE_DEVOPS_HANDBOOK.md): Complete guide with architecture diagrams, real-world bug fixes, and deployment cheatsheet.
+- [**EduPulse DevSecOps & GitOps Handbook (Local Doc)**](docs/EDUPULSE_DEVOPS_HANDBOOK.md) / [**(View on GitHub)**](https://github.com/Adhiraj1212/edupulse-platform/blob/main/docs/EDUPULSE_DEVOPS_HANDBOOK.md): Complete guide with architecture diagrams, real-world bug fixes, and deployment cheatsheet.
 - [**Local Development & Testing**](docker-compose.local.yaml): Run the complete stack locally on your workstation.
