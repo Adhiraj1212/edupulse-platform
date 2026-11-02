@@ -2,10 +2,9 @@ name: platform-infra-ci-cd
 
 on:
   pull_request:
-    paths: ['infra/**', 'deploy/**', '.github/workflows/infra.yml']
+    branches: [main]
   push:
     branches: [main]
-    paths: ['infra/**', 'deploy/**', '.github/workflows/infra.yml']
   workflow_dispatch:
 
 permissions:
