@@ -1,0 +1,160 @@
+name: edupulse
+
+services:
+  db:
+    image: mysql:8.4
+    mem_limit: 512m
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-student_db}
+      MYSQL_USER: ${MYSQL_USER:-student}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD:?set AUDIT_DB_PASSWORD}
+    command:
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+      - --max-connections=60
+      - --skip-name-resolve
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db/init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - default
+
+  redis:
+    image: redis:7-alpine
+    mem_limit: 160m
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --maxmemory 100mb --maxmemory-policy volatile-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - default
+
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    mem_limit: 512m
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-edupulse}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 1:1 +sbwt none"
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-edupulse.conf:ro
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:5672:5672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    networks:
+      - default
+
+  auth-service:
+    image: ghcr.io/adhiraj1212/edupulse-auth-service:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-administrator}
+      STUDENT_USER: ${STUDENT_USER:-student}
+      STUDENT_PASSWORD: ${STUDENT_PASSWORD:-student123}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    networks:
+      - edge
+      - default
+    depends_on:
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  backend:
+    image: ghcr.io/adhiraj1212/edupulse-backend:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      DB_HOST: db
+      DB_USER: ${MYSQL_USER:-student}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_DATABASE: ${MYSQL_DATABASE:-student_db}
+      DB_TABLE: students
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+    networks:
+      - edge
+      - default
+    depends_on:
+      db: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  audit-service:
+    image: ghcr.io/adhiraj1212/edupulse-audit-service:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6000:6000"
+    environment:
+      DB_HOST: db
+      DB_USER: audit
+      DB_PASSWORD: ${AUDIT_DB_PASSWORD}
+      DB_DATABASE: audit_db
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+    networks:
+      - edge
+      - default
+    depends_on:
+      db: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  frontend:
+    image: ghcr.io/adhiraj1212/edupulse-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:8080"
+    environment:
+      AUTH_UPSTREAM: auth-service:4000
+      BACKEND_UPSTREAM: backend:5000
+      AUDIT_UPSTREAM: audit-service:6000
+      DNS_RESOLVER: 127.0.0.11
+    networks:
+      - edge
+    depends_on:
+      auth-service: { condition: service_healthy }
+      backend: { condition: service_healthy }
+      audit-service: { condition: service_healthy }
+
+volumes:
+  db_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  edge:
+  default:
+
