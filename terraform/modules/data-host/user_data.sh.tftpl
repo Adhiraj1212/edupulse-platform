@@ -1,0 +1,45 @@
+#!/bin/bash
+# First-boot setup of the data host: Docker, the encrypted data disk, and the deploy script.
+# What actually RUNS here (infra/docker-compose.yaml) is delivered by the infra pipeline.
+set -euxo pipefail
+
+dnf upgrade -y --security
+dnf install -y docker jq
+
+# Docker Compose plugin, verified against the published checksum
+mkdir -p /usr/local/lib/docker/cli-plugins
+cd /usr/local/lib/docker/cli-plugins
+curl -fsSLO https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-x86_64
+curl -fsSL https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-x86_64.sha256 | sha256sum -c -
+mv docker-compose-linux-x86_64 docker-compose
+chmod +x docker-compose
+
+# Wait for the data disk, format it once, mount it at /data
+DEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${volume_id}
+for i in $(seq 1 60); do [ -e "$DEV" ] && break; sleep 5; done
+[ -e "$DEV" ]
+if ! blkid "$DEV"; then mkfs.xfs "$DEV"; fi
+mkdir -p /data
+UUID=$(blkid -s UUID -o value "$DEV")
+grep -q "$UUID" /etc/fstab || echo "UUID=$UUID /data xfs defaults,nofail 0 2" >> /etc/fstab
+mount -a
+
+# Keep all container data (volumes, images) on the data disk
+mkdir -p /data/docker /etc/docker
+cat > /etc/docker/daemon.json <<'EOF'
+{"data-root":"/data/docker","log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}
+EOF
+systemctl enable --now docker
+
+mkdir -p /opt/edupulse
+cat > /opt/edupulse/instance.env <<EOF
+BUCKET=${bucket}
+SECRET_ID=${secret_id}
+REGION=${region}
+BIND_IP=${bind_ip}
+EOF
+
+cat > /opt/edupulse/deploy-infra.sh <<'EOS'
+${deploy_script}
+EOS
+chmod 750 /opt/edupulse/deploy-infra.sh

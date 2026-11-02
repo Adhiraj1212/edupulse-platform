@@ -1,0 +1,13 @@
+title = "edupulse-platform gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-safe paths, documentation and examples"
+paths = [
+  '''README\.md$''',
+  '''DEPLOYMENT\.md$''',
+  '''\.example$''',
+  '''\.terraform\.lock\.hcl$''',
+]

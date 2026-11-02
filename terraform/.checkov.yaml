@@ -1,0 +1,43 @@
+framework:
+  - terraform
+quiet: true
+compact: true
+# Every skip is a deliberate decision. Revisit them when the threat model changes.
+skip-check:
+  # AdministratorAccess on the apply role: Terraform creates IAM roles, VPCs, KMS keys, etc.
+  # Gated by the prod-infra environment approval and an OIDC subject condition.
+  - CKV_AWS_274
+  # KMS key policy "kms:*" on "*" is the required root-delegation statement, not a grant to the world.
+  - CKV_AWS_111
+  - CKV_AWS_109
+  - CKV_AWS_356
+  - CKV_AWS_108
+  # Port 80 on the ALB exists only to 301-redirect to HTTPS.
+  - CKV_AWS_260
+  # KnownBadInputs (includes Log4Shell) is attached via a dynamic block that checkov cannot evaluate.
+  - CKV_AWS_192
+  # Nginx renders its config into /etc/nginx/conf.d at start. It runs non-root with every capability dropped.
+  - CKV_AWS_336
+  # ALB access logs bucket: SSE-S3 is the only supported encryption, logs expire after 90 days so no versioning.
+  - CKV_AWS_145
+  - CKV_AWS_21
+  # Cross-region replication, access logging and event notifications for state/log/artifact buckets are out of scope here.
+  - CKV_AWS_144
+  - CKV_AWS_18
+  - CKV2_AWS_62
+  # WAF log group has no CMK: WAF log delivery uses a service-managed resource policy.
+  - CKV_AWS_158
+  # False positives: the public access block and the WAF rule groups exist but are created through
+  # for_each / dynamic blocks that checkov cannot follow.
+  - CKV2_AWS_6
+  - CKV2_AWS_76
+  # AZs are discovered dynamically on purpose; az_count pins how many are used.
+  - CKV_AWS_394
+  # KNOWN GAP: passwords are generated once by Terraform. Automatic rotation needs a rotation
+  # Lambda plus coordinated MySQL/Redis/RabbitMQ updates and is not built yet (see README).
+  - CKV2_AWS_57
+  # Deliberate: one wildcard certificate (*.root + root) so new subdomains need no new certificate.
+  - CKV2_AWS_71
+  # ALB to task is HTTP inside the private subnets, reachable only from the ALB security group.
+  # End-to-end TLS would need a certificate inside every task.
+  - CKV_AWS_378

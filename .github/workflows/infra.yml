@@ -1,0 +1,75 @@
+# Data-tier host (MySQL + Redis + RabbitMQ).
+# Terraform builds the EC2 instance; this pipeline delivers what runs on it:
+# infra/ -> S3 -> AWS Systems Manager (SSM) runs /opt/edupulse/deploy-infra.sh.
+name: infra-ci-cd
+
+on:
+  pull_request:
+    paths: ['infra/**', '.github/workflows/infra.yml']
+  push:
+    branches: [main]
+    paths: ['infra/**', '.github/workflows/infra.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Compose & Scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Secret Scan (Gitleaks)
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source /repo --redact --no-banner --verbose
+
+      - name: Verify Compose File
+        run: docker compose -f infra/docker-compose.yaml --env-file infra/.env.example config --quiet
+
+      - name: Shellcheck DB init & deploy scripts
+        run: shellcheck infra/db/init.sh terraform/modules/data-host/deploy-infra.sh
+
+  deploy:
+    name: Deploy to Data Host (EC2 via SSM)
+    needs: validate
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: prod
+    concurrency:
+      group: deploy-infra
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # AWS OIDC
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC Deploy Role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_DEPLOY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish infra/ to S3 Artifacts Bucket
+        run: aws s3 sync infra/ "s3://${{ vars.ARTIFACTS_BUCKET }}/infra/" --delete --exclude ".env*"
+
+      - name: Execute Deploy Script on EC2 via SSM Session Manager
+        run: |
+          CMD=$(aws ssm send-command \
+            --instance-ids "${{ vars.INFRA_INSTANCE_ID }}" \
+            --document-name AWS-RunShellScript \
+            --comment "infra deploy ${GITHUB_SHA}" \
+            --parameters 'commands=["/opt/edupulse/deploy-infra.sh"]' \
+            --query Command.CommandId --output text)
+          aws ssm wait command-executed --command-id "$CMD" --instance-id "${{ vars.INFRA_INSTANCE_ID }}" || true
+          STATUS=$(aws ssm get-command-invocation --command-id "$CMD" --instance-id "${{ vars.INFRA_INSTANCE_ID }}" \
+            --query Status --output text)
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "${{ vars.INFRA_INSTANCE_ID }}" \
+            --query '[StandardOutputContent,StandardErrorContent]' --output text
+          [ "$STATUS" = "Success" ] || { echo "deploy status: $STATUS"; exit 1; }

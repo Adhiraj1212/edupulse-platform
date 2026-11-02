@@ -1,0 +1,6 @@
+# cp backend.hcl.example backend.hcl   (use the bucket printed by terraform/bootstrap)
+bucket       = "edupulse-tfstate-<account-id>-us-east-1"
+key          = "prod/terraform.tfstate"
+region       = "us-east-1"
+encrypt      = true
+use_lockfile = true

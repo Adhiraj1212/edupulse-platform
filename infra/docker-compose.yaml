@@ -1,0 +1,91 @@
+# EDUPULSE data tier: MySQL + Redis + RabbitMQ on ONE host (EC2), kept deliberately small.
+#
+#   cp .env.example .env   # fill in real secrets, set BIND_IP to the instance's PRIVATE IP
+#   docker compose up -d
+#
+# The ECS services reach these over the VPC. Ports are bound to BIND_IP only and must
+# be opened in the EC2 security group to the ECS services' security group alone
+# (never 0.0.0.0/0). See ../DEPLOYMENT.md.
+
+name: edupulse-infra
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  db:
+    <<: *common
+    image: mysql:8.4
+    mem_limit: 512m
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-student_db}
+      MYSQL_USER: ${MYSQL_USER:-student}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD:?set AUDIT_DB_PASSWORD}
+    # small-footprint tuning
+    command:
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+      - --max-connections=60
+      - --skip-name-resolve
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db/init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    ports:
+      - "${BIND_IP:-127.0.0.1}:3306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  redis:
+    <<: *common
+    image: redis:7-alpine
+    mem_limit: 160m
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    # sessions and lockout counters all carry a TTL, so evicting TTL keys under pressure is safe
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --maxmemory 100mb --maxmemory-policy volatile-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${BIND_IP:-127.0.0.1}:6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    <<: *common
+    image: rabbitmq:4-alpine
+    mem_limit: 512m
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-edupulse}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 1:1 +sbwt none"
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-edupulse.conf:ro
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "${BIND_IP:-127.0.0.1}:5672:5672"   # AMQP only; no management UI or epmd exposed
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  db_data:
+  redis_data:
+  rabbitmq_data:

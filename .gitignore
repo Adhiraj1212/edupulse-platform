@@ -1,0 +1,27 @@
+# Local environment & secrets
+.env
+.env.*
+!.env.example
+infra/.env
+*.pem
+*.key
+
+# Terraform local cache and state
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+backend.hcl
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
