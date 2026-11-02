@@ -129,5 +129,5 @@ Once the platform is running, push each of the 4 microservices to trigger their 
 ## 4. Deep-Dive Guides
 
 For detailed, step-by-step instructions, troubleshooting scenarios, and security explanations, check out:
-- [**Classmate DevSecOps & GitOps Handbook**](docs/CLASSMATE_DEVOPS_GUIDE.md): Complete guide with architecture diagrams, real-world bug fixes, and student cheatsheet.
+- [**EduPulse DevSecOps & GitOps Handbook**](docs/EDUPULSE_DEVOPS_HANDBOOK.md): Complete guide with architecture diagrams, real-world bug fixes, and deployment cheatsheet.
 - [**Local Development & Testing**](docker-compose.local.yaml): Run the complete stack locally on your workstation.

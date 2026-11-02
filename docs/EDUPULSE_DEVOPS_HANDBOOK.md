@@ -1,6 +1,6 @@
 # EduPulse DevSecOps & GitOps Handbook: Multi-Repo Microservices on AWS EC2 (Zero-SSH)
 
-> **Audience:** DevOps Students, Lab Partners, and Cloud Engineering Learners  
+> **Audience:** DevOps Engineers, Cloud Learners, and System Administrators  
 > **Architecture:** Multi-Repo Microservices (7 Services) + AWS EC2 + GitHub Actions CI/CD  
 > **Security Model:** Zero-Trust / Keyless (Strictly No SSH keys, No open port 22, AWS OIDC + AWS Systems Manager)
 
@@ -533,7 +533,7 @@ git -C edupulse-frontend add -A && git -C edupulse-frontend commit -m "update fr
 
 ---
 
-## Summary Checklist for Classmates
+## Summary Deployment Checklist
 
 - [x] **No SSH Keys:** Port 22 is closed; all connections go through AWS Systems Manager Session Manager.
 - [x] **No Static AWS Secrets:** GitHub Actions assumes temporary credentials using OIDC.
