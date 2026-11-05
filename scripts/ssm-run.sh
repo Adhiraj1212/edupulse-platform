@@ -9,7 +9,7 @@ component="${1:?usage: ssm-run.sh <component> <image-ref> <instance-id> [version
 image="${2:?image reference required}"
 instance="${3:?instance id required}"
 version="${4:-}"
-region="${AWS_REGION:?AWS_REGION is required}"
+region="${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}"
 script="$(dirname "${BASH_SOURCE[0]}")/ssm-deploy.sh"
 
 image_re='^ghcr\.io/[a-z0-9._/-]+(:[A-Za-z0-9._-]+|@sha256:[a-f0-9]{64})$'
@@ -18,7 +18,7 @@ image_re='^ghcr\.io/[a-z0-9._/-]+(:[A-Za-z0-9._-]+|@sha256:[a-f0-9]{64})$'
 [[ "${instance}" =~ ^i-[0-9a-f]+$ ]] || { echo "bad instance id: ${instance}" >&2; exit 2; }
 [[ -z "${version}" || "${version}" =~ ^[A-Za-z0-9._-]{1,40}$ ]] || { echo "bad version label: ${version}" >&2; exit 2; }
 
-b64="$(base64 -w0 "${script}" 2>/dev/null || base64 "${script}" | tr -d '\r\n')"
+b64="$(base64 < "${script}" | tr -d '\r\n')"
 params="$(jq -cn --arg b "${b64}" --arg c "${component}" --arg i "${image}" --arg r "${region}" --arg v "${version}" \
   '{commands: ["set -euo pipefail",
                "echo \($b) | base64 -d > /tmp/ssm-deploy.sh",

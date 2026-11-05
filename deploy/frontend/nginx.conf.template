@@ -1,0 +1,101 @@
+# Rendered by the nginx image entrypoint (envsubst, only the whitelisted variables).
+resolver ${DNS_RESOLVER} valid=10s ipv6=off;
+
+# Behind a proxy/ALB: take client IP from X-Forwarded-For
+set_real_ip_from ${TRUSTED_PROXY_CIDR};
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+
+# Dynamic upstreams for Blue/Green deployment
+include /etc/nginx/upstreams/*.conf;
+
+server {
+  listen 8080;
+  server_name _;
+  root /usr/share/nginx/html;
+  server_tokens off;
+
+  gzip on;
+  gzip_types text/css application/javascript application/json image/svg+xml;
+
+  add_header X-Content-Type-Options nosniff always;
+  add_header X-Frame-Options DENY always;
+  add_header Referrer-Policy same-origin always;
+
+  # Health check endpoint
+  location = /healthz { access_log off; default_type text/plain; return 200 "ok"; }
+
+  # --- internal: ask auth-service whether the session cookie is valid ---
+  location = /_verify {
+    internal;
+    proxy_pass http://auth_upstream/verify;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI $request_uri;
+  }
+
+  # same check, but only for the given role (auth-service answers 403 otherwise)
+  location = /_verify_teacher {
+    internal;
+    proxy_pass http://auth_upstream/verify;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Required-Role teacher;
+  }
+
+  location @login_redirect { return 302 /login.html; }
+  location @portal_redirect { return 302 /student-portal.html; }
+  location @api_unauth {
+    default_type application/json;
+    return 401 '{"message":"Authentication required"}';
+  }
+
+  # --- public: landing page, login page, static art ---
+  location = / { try_files /landing.html =404; }
+  location ~ ^/(landing|login)\.(html|css|js)$ { try_files $uri =404; }
+  location /assets/ { try_files $uri =404; }
+
+  # --- auth-service endpoints (public by design) ---
+  location ~ ^/api/(login|logout|me)$ {
+    proxy_pass http://auth_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+  }
+
+  # --- audit-service (role enforced by the service) ---
+  location = /api/audit {
+    include snippets/guard.conf;
+    error_page 401 = @api_unauth;
+    proxy_set_header X-User-Role $auth_role;
+    proxy_set_header X-User-Name $auth_user;
+    proxy_pass http://audit_upstream;
+  }
+
+  # --- backend (student API) ---
+  location /api/ {
+    include snippets/guard.conf;
+    error_page 401 = @api_unauth;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-User-Role $auth_role;
+    proxy_set_header X-User-Name $auth_user;
+    proxy_pass http://backend_upstream;
+  }
+
+  # --- teacher-only pages: students are sent to their own portal ---
+  location ~ ^/(home|reg|studdetails|student|navbar)\.html$ {
+    auth_request /_verify_teacher;
+    error_page 401 = @login_redirect;
+    error_page 403 = @portal_redirect;
+    try_files $uri =404;
+  }
+
+  # --- everything else needs a valid session (any role) ---
+  location / {
+    include snippets/guard.conf;
+    error_page 401 = @login_redirect;
+    try_files $uri =404;
+  }
+}

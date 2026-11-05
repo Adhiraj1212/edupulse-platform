@@ -318,34 +318,56 @@ sequenceDiagram
    ```
 3. **Software Bill of Materials (SBOM):** Generates a machine-readable inventory of software components using CycloneDX and attaches it as a build artifact.
 
-### 6.3 The Dynamic Override Strategy (Zero-Downtime Updates)
-Instead of re-running the entire `docker-compose.yml` (which could restart the database or other microservices), each service deploys using a **Docker Compose Override**:
-- Platform base configuration: `/opt/edupulse/docker-compose.yml`
-- Service-specific override: `/var/lib/gha-deploy/<service>.override.yml`
+### 6.3 Zero-Downtime Blue/Green Deployment Architecture
 
-When `ssm-deploy.sh` executes:
-```bash
-# 1. Pull the new image
-docker pull "$IMAGE_REF"
+To achieve zero downtime and eliminate 502 Bad Gateway errors during deployments, EduPulse implements an **Automated Blue/Green Deployment Pattern**:
 
-# 2. Backup current healthy override
-cp /var/lib/gha-deploy/$SERVICE_NAME.override.yml /var/lib/gha-deploy/$SERVICE_NAME.override.yml.bak
-
-# 3. Write new override pointing to the new image SHA
-cat <<EOF > /var/lib/gha-deploy/$SERVICE_NAME.override.yml
-services:
-  $SERVICE_NAME:
-    image: $IMAGE_REF
-EOF
-
-# 4. Recreate ONLY this service container
-cd /opt/edupulse
-docker compose -f docker-compose.yml -f /var/lib/gha-deploy/$SERVICE_NAME.override.yml up -d --no-deps $SERVICE_NAME
-
-# 5. Health Check Verification Loop
-# Checks container health up to 30 times. If healthy: SUCCESS.
-# If it fails or crashes: Automatically restores .override.yml.bak and rolls back!
 ```
+                         Public Traffic (Port 80)
+                                    |
+                                    v
+                   +----------------------------------+
+                   |  edupulse-gateway (Nginx :80)    |
+                   |  Routes to frontend_upstream     |
+                   +----------------------------------+
+                                    |
+                  +-----------------+-----------------+
+                  | (Active Cutover via nginx reload) |
+                  v                                   v
+        [frontend-blue :8081]               [frontend-green :8082]
+                  |                                   |
+                  +-----------------+-----------------+
+                                    |
+         +--------------------------+--------------------------+
+         | (Nginx Upstreams: /etc/nginx/upstreams/*.conf)      |
+         v                          v                          v
++------------------+       +------------------+       +------------------+
+| auth-service     |       | backend          |       | audit-service    |
+| - blue (:4001)   |       | - blue (:5001)   |       | - blue (:6001)   |
+| - green (:4002)  |       | - green (:5002)  |       | - green (:6002)  |
++------------------+       +------------------+       +------------------+
+         |                          |                          |
+         +--------------------------+--------------------------+
+                                    |
+                                    v
+                   +----------------------------------+
+                   | Shared Stateful Data Tier        |
+                   | MySQL 8.4 (3306), Redis 7 (6379) |
+                   | RabbitMQ 4 (5672)                |
+                   +----------------------------------+
+```
+
+#### How the Blue/Green Cycle Works in `ssm-deploy.sh`:
+1. **Slot Detection:** The script queries `/var/lib/gha-deploy/<service>.color` to determine the currently `ACTIVE` slot (e.g. `blue`). The `TARGET` slot is set to the opposite color (e.g. `green`).
+2. **Side-by-Side Launch:** The target slot container is started (`<service>-green`) using the newly pushed container image. **The active container (`<service>-blue`) is completely untouched and continues serving 100% of live traffic without interruption.**
+3. **Target Health Check Loop:** The script polls the internal health endpoint of the target container on its dedicated loopback port (e.g. `http://127.0.0.1:5002/health` for `backend-green`).
+4. **Zero-Risk Failure Handling:** If the target container crashes or fails its health check within 30 retries, the deployment script prints the container logs, stops and deletes the target container, and exits with an error. **The live blue container was never stopped, so users experience zero downtime or connection drops!**
+5. **Instant Atomic Cutover:** Once the target container reports healthy:
+   - For `frontend`: rewrites `/opt/edupulse/upstreams/frontend.conf` to point to `frontend-green:8080`, then executes `docker exec edupulse-gateway-1 nginx -s reload`.
+   - For microservices (`backend`, `auth-service`, `audit-service`): rewrites the corresponding upstream file (`/opt/edupulse/upstreams/<service>.conf`) and executes `nginx -s reload` on the active frontend container.
+   - Nginx gracefully reloads its worker processes in under 1 millisecond.
+6. **Connection Draining & Cleanup:** The script waits 5 seconds for any in-flight requests on the old container to finish, then gracefully stops and removes the old container (`<service>-blue`).
+7. **State Preservation:** Records the new active color in `/var/lib/gha-deploy/<service>.color`. On the next deployment, the colors swap automatically!
 
 ---
 

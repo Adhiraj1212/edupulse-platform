@@ -1,6 +1,27 @@
 name: edupulse
 
 services:
+  # =================================================================
+  # Edge Gateway: Zero-downtime Blue/Green Router
+  # =================================================================
+  gateway:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./upstreams/frontend.conf:/etc/nginx/upstreams/frontend.conf:ro
+    networks:
+      - default
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  # =================================================================
+  # Stateful Data Tier (Persistent Storage)
+  # =================================================================
   db:
     image: mysql:8.4
     mem_limit: 512m
@@ -74,12 +95,16 @@ services:
     networks:
       - default
 
-  auth-service:
+  # =================================================================
+  # Auth Service (Blue / Green Slots)
+  # =================================================================
+  auth-service-blue:
     image: ghcr.io/adhiraj1212/edupulse-auth-service:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:4000:4000"
+      - "127.0.0.1:4001:4000"
     environment:
+      PORT: 4000
       REDIS_URL: redis://redis:6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
@@ -89,18 +114,42 @@ services:
       STUDENT_PASSWORD: ${STUDENT_PASSWORD:-student123}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     networks:
-      - edge
       - default
     depends_on:
       redis: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
 
-  backend:
+  auth-service-green:
+    image: ghcr.io/adhiraj1212/edupulse-auth-service:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4002:4000"
+    environment:
+      PORT: 4000
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-administrator}
+      STUDENT_USER: ${STUDENT_USER:-student}
+      STUDENT_PASSWORD: ${STUDENT_PASSWORD:-student123}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    networks:
+      - default
+    depends_on:
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  # =================================================================
+  # Backend API (Blue / Green Slots)
+  # =================================================================
+  backend-blue:
     image: ghcr.io/adhiraj1212/edupulse-backend:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:5001:5000"
     environment:
+      PORT: 5000
       DB_HOST: db
       DB_USER: ${MYSQL_USER:-student}
       DB_PASSWORD: ${MYSQL_PASSWORD}
@@ -108,46 +157,101 @@ services:
       DB_TABLE: students
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
     networks:
-      - edge
       - default
     depends_on:
       db: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
 
-  audit-service:
+  backend-green:
+    image: ghcr.io/adhiraj1212/edupulse-backend:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5002:5000"
+    environment:
+      PORT: 5000
+      DB_HOST: db
+      DB_USER: ${MYSQL_USER:-student}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_DATABASE: ${MYSQL_DATABASE:-student_db}
+      DB_TABLE: students
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+    networks:
+      - default
+    depends_on:
+      db: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  # =================================================================
+  # Audit Service (Blue / Green Slots)
+  # =================================================================
+  audit-service-blue:
     image: ghcr.io/adhiraj1212/edupulse-audit-service:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6000:6000"
+      - "127.0.0.1:6001:6000"
     environment:
+      PORT: 6000
       DB_HOST: db
       DB_USER: audit
       DB_PASSWORD: ${AUDIT_DB_PASSWORD}
       DB_DATABASE: audit_db
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
     networks:
-      - edge
       - default
     depends_on:
       db: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
 
-  frontend:
+  audit-service-green:
+    image: ghcr.io/adhiraj1212/edupulse-audit-service:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6002:6000"
+    environment:
+      PORT: 6000
+      DB_HOST: db
+      DB_USER: audit
+      DB_PASSWORD: ${AUDIT_DB_PASSWORD}
+      DB_DATABASE: audit_db
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-edupulse}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+    networks:
+      - default
+    depends_on:
+      db: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  # =================================================================
+  # Frontend Service (Blue / Green Slots)
+  # =================================================================
+  frontend-blue:
     image: ghcr.io/adhiraj1212/edupulse-frontend:latest
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-80}:8080"
-    environment:
-      AUTH_UPSTREAM: auth-service:4000
-      BACKEND_UPSTREAM: backend:5000
-      AUDIT_UPSTREAM: audit-service:6000
-      DNS_RESOLVER: 127.0.0.11
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./upstreams:/etc/nginx/upstreams:ro
+      - ./frontend/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
     networks:
-      - edge
+      - default
     depends_on:
-      auth-service: { condition: service_healthy }
-      backend: { condition: service_healthy }
-      audit-service: { condition: service_healthy }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  frontend-green:
+    image: ghcr.io/adhiraj1212/edupulse-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:8080"
+    volumes:
+      - ./upstreams:/etc/nginx/upstreams:ro
+      - ./frontend/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks:
+      - default
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
 
 volumes:
   db_data:
@@ -155,6 +259,4 @@ volumes:
   rabbitmq_data:
 
 networks:
-  edge:
   default:
-
